@@ -1,0 +1,194 @@
+// 20/10/2025 - LAB EXPERIMENT | WATER FLOW THROUGH LIVE POLE DRAINS
+// Author: Fernanda Berlitz 
+// E-mail: fernanda.berlitz@gcu.ac.uk
+
+
+// TASK 02: CLASSIFY HUE & FLOW AREA THROUGH IMAGE ANALYSIS
+
+// 1. Get Directories
+input = getDirectory("Select input folder where images are stored"); // data/input/cross-section_photos
+master_output = getDirectory("Select master output folder for results"); //data/output/hue_class
+
+// Ensure master_output ends with the correct OS slash
+if (!endsWith(master_output, File.separator)) {
+    master_output = master_output + File.separator;
+}
+
+// 2. Automatically create subfolders to keep things clean
+outOpen = master_output + "OUTPUT_OPEN" + File.separator;
+outAll = master_output + "OUTPUT_ALL" + File.separator;
+
+// Safely create folders only if they don't already exist
+if (!File.exists(outOpen)) {
+    File.makeDirectory(outOpen);
+}
+if (!File.exists(outAll)) {
+    File.makeDirectory(outAll);
+}
+
+list = getFileList(input);
+setBatchMode(true);
+run("Set Measurements...", "area mean standard centroid median skewness limit invert redirect=None decimal=4");
+
+for (i = 0; i < list.length; i++) {
+    open(input + list[i]);
+
+    // Set scale and get file name
+    run("Set Scale...", "distance=238 known=10 unit=mm global");
+    slice = File.nameWithoutExtension;
+    rename("OR_slice.png");
+    run("Duplicate...", "title=working_copy");
+
+    // SHARED HSB PROCESSING!
+    run("HSB Stack");
+    run("Stack to Images");
+
+    selectImage("Saturation");
+    saveAs("PNG", outAll + i + "_" + slice + "_SAT.png");
+    close();
+
+    selectImage("Brightness");
+    close();
+
+    selectImage("Hue");
+    saveAs("PNG", outAll + i + "_" + slice + "_HUE.png");
+    run("Duplicate...", "title=Hue_filter.png");
+    selectImage("Hue_filter.png");
+    run("Median...", "radius=1");
+
+    // --- STEP 1: OPEN AREA LOGIC ---
+    selectImage("Hue_filter.png");
+    setThreshold(154, 255, "raw");
+    run("Analyze Particles...", "size=1.00-Infinity show=Masks");
+    run("Convert to Mask");
+    run("Fill Holes");
+    
+    // Save OPEN mask to the specific subfolder
+    saveAs("PNG", outOpen + i + "_" + slice + "_OPEN.png");
+    imgOPEN = getTitle(); // We keep this open in memory for Step 2!
+
+    // Get OPEN Results
+    run("Analyze Particles...", "size=0-Infinity show=Nothing display clear add");
+    saveAs("Results", outOpen + i + "_" + slice + "_Results_OPEN.csv");
+    run("Clear Results");
+    roiManager("Save", outOpen + i + "_" + slice + "_RoiSet_OPEN.zip");
+    roiManager("delete");
+
+    // --- STEP 2: LUT & HISTOGRAM LOGIC ---
+    open(outAll + i + "_" + slice + "_HUE.png");
+    run("Fire");
+    run("Histogram");
+    saveAs("PNG", outAll + i + "_" + slice + "_Histogram_Hue_LUT.png");
+    close();
+    
+    run("Scale Bar...", "width=1 height=1 font=28 color=[Light Gray] horizontal bold overlay");
+    run("Calibration Bar...", "location=[Lower Left] fill=None label=White number=5 decimal=0 font=12 zoom=1.5 overlay");
+    saveAs("PNG", outAll + i + "_" + slice + "_Hue_LUT.png");
+    close();
+
+    // --- STEP 3: LAT, PERC, AND DRY LOGIC ---
+    // Total Frame Area
+    setAutoThreshold("Default no-reset");
+    setThreshold(0, 255, "raw");
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+
+    // Border Area
+    setThreshold(1, 255, "raw"); 
+    run("Create Mask");
+    run("Fill Holes");
+    setThreshold(0, 0, "raw");
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+    close(); // close border mask
+
+    // Total Available Area
+    selectImage("Hue_filter.png");
+    resetThreshold;
+    setThreshold(1, 255, "raw"); 
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+
+    // Lateral Flow
+    selectImage("Hue_filter.png");
+    setThreshold(112, 255, "raw"); 
+    run("Create Mask");
+    imageCalculator("Subtract create", "mask", imgOPEN); 
+    selectImage("Result of mask");
+    saveAs("PNG", outAll + i + "_" + slice + "_LAT.png");
+    imgLAT = getTitle();
+    
+    setAutoThreshold("Default dark no-reset");
+    setThreshold(255, 255, "raw");
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+    selectImage("mask");
+    close();
+
+    // Percolation
+    selectImage("Hue_filter.png");
+    resetThreshold;
+    setThreshold(21, 255, "raw"); 
+    run("Create Mask");
+    imageCalculator("Subtract create", "mask", imgOPEN);
+    selectImage("Result of mask");
+    imageCalculator("Subtract create", "Result of mask", imgLAT);
+    selectImage("Result of Result of mask");
+    saveAs("PNG", outAll + i + "_" + slice + "_PERC.png"); 
+    imgPERC = getTitle();
+    
+    setAutoThreshold("Default dark no-reset");
+    setThreshold(255, 255, "raw");
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+    selectImage("mask");
+    close();
+    selectImage("Result of mask");
+    close();
+
+    // Dry Soil
+    selectImage("Hue_filter.png");
+    resetThreshold;
+    setThreshold(1, 255, "raw"); 
+    run("Create Mask");
+    imageCalculator("Subtract create", "mask", imgOPEN);
+    selectImage("Result of mask");
+    imageCalculator("Subtract create", "Result of mask", imgLAT);
+    selectImage("Result of Result of mask");
+    imageCalculator("Subtract create", "Result of Result of mask", imgPERC);
+    selectImage("Result of Result of Result of mask");
+    saveAs("PNG", outAll + i + "_" + slice + "_DRY.png"); 
+    imgDRY = getTitle();
+
+    setAutoThreshold("Default dark no-reset");
+    setThreshold(255, 255, "raw");
+    run("Create Selection");
+    roiManager("Add");
+    run("Select None");
+    resetThreshold;
+    
+    // Measure and Save ALL Results
+    roiManager("Measure");
+    saveAs("Results", outAll + i + "_" + slice + "_Results_ALL.csv");
+    run("Clear Results");
+    roiManager("Save", outAll + i + "_" + slice + "_RoiSet_ALL.zip");
+    roiManager("Delete");
+
+    // Create Montage 
+    // Since images are already open, we don't need to re-open them!
+    run("Images to Stack", "name=Montage_Stack title=["+i+"_"+slice+"] use keep");
+    run("Make Montage...", "columns=4 rows=1 scale=0.25");
+    saveAs("PNG", outAll + i + "_" + slice + "_ALL.png");
+
+    run("Close All");
+}
