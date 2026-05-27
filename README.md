@@ -62,4 +62,4 @@ To run the analysis successfully, you will need:
 - ImageJ / FIJI: Required for running the .ijm macro files for image processing.
 
 ## License & Citation
-If using this data or code, please cite the original publication and the Zenodo DOI associated with this repository [[![DOI](https://zenodo.org/badge/1251534012.svg)](https://doi.org/10.5281/zenodo.20416046)]
+If using this data or code, please cite the original publication and the Zenodo DOI associated with this repository [https://doi.org/10.5281/zenodo.20416047]
